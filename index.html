@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>জানি ট্র্যাকার প্রো - Journey Tracker Pro</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        h2 { color: #333; margin-bottom: 5px; }
+        p.author { font-size: 14px; color: #777; margin-top: 0; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .card {
+            background: #fff;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #eee;
+        }
+
+        .card h3 { font-size: 14px; margin: 0; color: #555; }
+        .card p { font-size: 20px; font-weight: bold; color: #007bff; margin: 5px 0; }
+
+        .timer-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #eee;
+            margin-bottom: 15px;
+        }
+
+        #timer {
+            font-size: 35px;
+            font-weight: bold;
+            color: #007bff;
+            display: block;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+            font-weight: bold;
+        }
+
+        #startBtn { background-color: #28a745; color: white; }
+        #stopBtn { background-color: #dc3545; color: white; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        #map {
+            height: 300px;
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>📍 জানি ট্র্যাকার প্রো</h2>
+    <p class="author">শাকিল হোসেন দ্বারা তৈরি</p>
+
+    <div class="stats-grid">
+        <div class="card">
+            <h3>গতি</h3>
+            <p><span id="speed">0.0</span> <small>কিমি/ঘণ্টা</small></p>
+        </div>
+        <div class="card">
+            <h3>দূরত্ব</h3>
+            <p><span id="distance">0.00</span> <small>কিমি</small></p>
+        </div>
+    </div>
+
+    <div class="timer-card">
+        <h3>সময়</h3>
+        <span id="timer">00:00:00</span>
+        <small>ঘণ্টা:মিনিট:সেকেন্ড</small>
+    </div>
+
+    <div class="btn-group">
+        <button id="startBtn" onclick="startJourney()">স্টার্ট</button>
+        <button id="stopBtn" onclick="stopJourney()" disabled>স্টপ</button>
+    </div>
+
+    <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    let map, marker, watchID;
+    let startTime, timerInterval;
+    let totalDistance = 0;
+    let lastLatLng = null;
+    let seconds = 0, minutes = 0, hours = 0;
+
+    // ম্যাপ ইনিশিয়ালাইজেশন (শুরুতে ঢাকা দেখাবে কিন্তু পরে অটো আপডেট হবে)
+    map = L.map('map').setView([23.8103, 90.4125], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // ইউজারের বর্তমান লোকেশন অটো সেট করা
+    map.locate({setView: true, maxZoom: 16});
+
+    function startJourney() {
+        // বাটন কন্ট্রোল
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+
+        // সময় রিসেট এবং শুরু
+        seconds = 0; minutes = 0; hours = 0;
+        updateTimerDisplay();
+        timerInterval = setInterval(updateTimer, 1000);
+
+        // লোকেশন ট্র্যাকিং শুরু
+        if (navigator.geolocation) {
+            watchID = navigator.geolocation.watchPosition(updatePosition, handleError, {
+                enableHighAccuracy: true,
+                maximumAge: 1000
+            });
+        } else {
+            alert("আপনার ব্রাউজার লোকেশন সাপোর্ট করে না।");
+        }
+    }
+
+    function updateTimer() {
+        seconds++;
+        if (seconds >= 60) { seconds = 0; minutes++; }
+        if (minutes >= 60) { minutes = 0; hours++; }
+        updateTimerDisplay();
+    }
+
+    function updateTimerDisplay() {
+        const h = hours.toString().padStart(2, '0');
+        const m = minutes.toString().padStart(2, '0');
+        const s = seconds.toString().padStart(2, '0');
+        document.getElementById('timer').innerText = `${h}:${m}:${s}`;
+    }
+
+    function updatePosition(position) {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const speedKmh = position.coords.speed ? (position.coords.speed * 3.6).toFixed(1) : 0;
+        
+        const currentLatLng = L.latLng(lat, lng);
+
+        // গতি আপডেট
+        document.getElementById('speed').innerText = speedKmh;
+
+        // দূরত্ব হিসাব
+        if (lastLatLng) {
+            const d = lastLatLng.distanceTo(currentLatLng); // মিটারে
+            totalDistance += d / 1000; // কিলোমিটারে রূপান্তর
+            document.getElementById('distance').innerText = totalDistance.toFixed(2);
+        }
+        lastLatLng = currentLatLng;
+
+        // ম্যাপ আপডেট
+        if (marker) {
+            marker.setLatLng(currentLatLng);
+        } else {
+            marker = L.marker(currentLatLng).addTo(map).bindPopup("আপনার বর্তমান অবস্থান").openPopup();
+        }
+        map.setView(currentLatLng);
+    }
+
+    function stopJourney() {
+        clearInterval(timerInterval);
+        navigator.geolocation.clearWatch(watchID);
+        
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        
+        alert(`জার্নি শেষ! মোট দূরত্ব: ${totalDistance.toFixed(2)} কিমি`);
+    }
+
+    function handleError(error) {
+        console.warn('ERROR(' + error.code + '): ' + error.message);
+    }
+</script>
+
+</body>
+</html>
