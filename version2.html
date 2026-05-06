@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>জানি ট্র্যাকার প্রো - ভাড়ার হিসাব ও বিশ্রামসহ</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 15px; text-align: center; }
+        .container { max-width: 550px; margin: auto; background: #fff; padding: 20px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        
+        /* লোগো সেকশন */
+        .logo-area { width: 80px; height: 80px; background: #1a73e8; border-radius: 50%; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 4px solid #e7f3ff; overflow: hidden; }
+        .logo-area img { width: 100%; height: 100%; object-fit: cover; }
+
+        h2 { color: #1a73e8; margin-bottom: 5px; margin-top: 5px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; }
+        .card { background: #f8f9fa; padding: 15px; border-radius: 15px; border: 1px solid #e8eaed; }
+        .card h3 { font-size: 14px; margin: 0; color: #5f6368; }
+        .card p { font-size: 22px; font-weight: bold; color: #1a73e8; margin: 8px 0; }
+        
+        .extra-info { margin-top: 15px; padding: 15px; background: #e7f3ff; border-radius: 15px; border: 1px dashed #1a73e8; }
+        .rest-tip-box { margin-top: 15px; background: #fff4e5; padding: 10px; border-radius: 12px; border-left: 5px solid #ffa000; font-size: 14px; }
+        .rest-tip-title { font-weight: bold; color: #e65100; display: block; margin-bottom: 5px; }
+        
+        #timer { font-size: 38px; font-weight: bold; color: #202124; display: block; margin: 10px 0; }
+        .btn-group { display: flex; gap: 10px; justify-content: center; margin: 20px 0; }
+        button { padding: 12px 35px; font-size: 16px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        #startBtn { background: #34a853; color: white; }
+        #stopBtn { background: #ea4335; color: white; }
+        #map { height: 250px; width: 100%; border-radius: 15px; margin-top: 15px; border: 2px solid #1a73e8; }
+
+        /* নীল সার্কেল মার্কারের স্টাইল */
+        .blue-dot {
+            height: 15px; width: 15px; background-color: #1a73e8; border-radius: 50%;
+            display: inline-block; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="logo-area">
+        <span id="logoText">LOGO</span> 
+    </div>
+    
+    <h2>📍 জানি ট্র্যাকার প্রো</h2>
+    <p style="color: #777; margin-bottom: 15px;">শাকিল হোসেন দ্বারা তৈরি</p>
+
+    <div class="stats-grid">
+        <div class="card">
+            <h3>গতি (কিমি/ঘণ্টা)</h3>
+            <p id="speed">0.0</p>
+        </div>
+        <div class="card">
+            <h3>দূরত্ব (কিমি)</h3>
+            <p id="distance">0.00</p>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 15px;">
+        <h3>ভ্রমণের সময়</h3>
+        <span id="timer">00:00:00</span>
+        <div class="rest-tip-box">
+            <span class="rest-tip-title">🛋️ বিশ্রামের অবস্থা:</span>
+            <span id="restStatus">আপনার যাত্রা নিরাপদ হোক!</span><br>
+            <small id="restTips">এখনো বিরতির প্রয়োজন নেই।</small>
+        </div>
+    </div>
+
+    <div class="extra-info">
+        <h3 style="margin: 0; font-size: 16px;">💰 ভাড়ার হিসাব</h3>
+        <p style="font-size: 22px; margin: 5px 0; color: #1a73e8;">৳ <span id="fare">০.০০</span></p>
+        <small>(প্রতি কিমি ২.৫০ টাকা হিসেবে)</small>
+    </div>
+
+    <div class="btn-group">
+        <button id="startBtn" onclick="startJourney()">যাত্রা শুরু</button>
+        <button id="stopBtn" onclick="stopJourney()" disabled style="opacity: 0.5;">যাত্রা শেষ</button>
+    </div>
+
+    <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    let map, marker, circle, watchID, timerInterval;
+    let seconds = 0, minutes = 0, hours = 0, totalDistance = 0, lastLatLng = null;
+    const fareRate = 2.50; // প্রতি কিমি ২.৫০ টাকা
+
+    // ম্যাপ সেটআপ
+    map = L.map('map').setView([23.8103, 90.4125], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    // কাস্টম ব্লু মার্কার আইকন
+    const blueIcon = L.divIcon({
+        className: 'custom-div-icon',
+        html: "<div class='blue-dot'></div>",
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+
+    function startJourney() {
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('startBtn').style.opacity = 0.5;
+        document.getElementById('stopBtn').disabled = false;
+        document.getElementById('stopBtn').style.opacity = 1;
+        
+        timerInterval = setInterval(updateTimer, 1000);
+        
+        if (navigator.geolocation) {
+            watchID = navigator.geolocation.watchPosition(updatePosition, handleError, {
+                enableHighAccuracy: true,
+                maximumAge: 0
+            });
+        }
+    }
+
+    function updateTimer() {
+        seconds++;
+        if (seconds >= 60) { seconds = 0; minutes++; }
+        if (minutes >= 60) { minutes = 0; hours++; }
+        
+        let h = hours.toString().padStart(2, '0');
+        let m = minutes.toString().padStart(2, '0');
+        let s = seconds.toString().padStart(2, '0');
+        document.getElementById('timer').innerText = `${h}:${m}:${s}`;
+
+        checkRestNeed(hours * 60 + minutes);
+    }
+
+    function checkRestNeed(travelMinutes) {
+        let status = "";
+        let tip = "";
+
+        if (travelMinutes >= 360) {
+            status = "৪৫ মিনিট বিশ্রাম প্রয়োজন";
+            tip = "সতর্কতা: দীর্ঘক্ষণ পথে আছেন, স্ট্রেচিং করুন।";
+        } else if (travelMinutes >= 240) {
+            status = "৩০ মিনিট বিশ্রাম প্রয়োজন";
+            tip = "পরামর্শ: একটু বড় বিরতি ও খাবার খেয়ে নিন।";
+        } else if (travelMinutes >= 120) {
+            status = "১৫ মিনিট বিশ্রাম প্রয়োজন";
+            tip = "পরামর্শ: অন্তত ১৫ মিনিট চোখে জল দিন ও বিশ্রাম নিন।";
+        } else {
+            status = "আপনি সতেজ আছেন";
+            tip = "যাত্রা উপভোগ করুন!";
+        }
+
+        document.getElementById('restStatus').innerText = status;
+        document.getElementById('restTips').innerText = tip;
+    }
+
+    function updatePosition(position) {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const currentLatLng = L.latLng(lat, lng);
+        
+        // গতি (কিমি/ঘণ্টা)
+        let speed = position.coords.speed ? (position.coords.speed * 3.6).toFixed(1) : "0.0";
+        document.getElementById('speed').innerText = speed;
+
+        // দূরত্ব হিসাব
+        if (lastLatLng) {
+            let dist = lastLatLng.distanceTo(currentLatLng) / 1000;
+            if (dist > 0.005) { // ছোটখাটো জিপিএস ফ্লাকচুয়েশন এড়াতে
+                totalDistance += dist;
+                document.getElementById('distance').innerText = totalDistance.toFixed(2);
+                document.getElementById('fare').innerText = (totalDistance * fareRate).toFixed(2);
+            }
+        }
+        lastLatLng = currentLatLng;
+        
+        // ম্যাপে নীল রঙের লোকেশন মার্কার আপডেট
+        if (marker) {
+            marker.setLatLng(currentLatLng);
+        } else {
+            marker = L.marker(currentLatLng, {icon: blueIcon}).addTo(map);
+        }
+        
+        // লোকেশনের চারপাশে হালকা নীল আভা (Accuracy Circle)
+        if (circle) map.removeLayer(circle);
+        circle = L.circle(currentLatLng, {radius: 20, color: '#1a73e8', fillOpacity: 0.2}).addTo(map);
+        
+        map.setView(currentLatLng);
+    }
+
+    function stopJourney() {
+        clearInterval(timerInterval);
+        navigator.geolocation.clearWatch(watchID);
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('startBtn').style.opacity = 1;
+        document.getElementById('stopBtn').disabled = true;
+        document.getElementById('stopBtn').style.opacity = 0.5;
+        alert("জার্নি শেষ! \nমোট দূরত্ব: " + totalDistance.toFixed(2) + " কিমি\nমোট ভাড়া: ৳" + (totalDistance * fareRate).toFixed(2));
+    }
+
+    function handleError(error) {
+        console.warn(`ERROR(${error.code}): ${error.message}`);
+    }
+</script>
+
+</body>
+</html>
